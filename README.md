@@ -4,9 +4,9 @@
 `imgix-rails` is a gem for integrating [imgix](https://www.imgix.com/) into Ruby on Rails applications. It builds on [imgix-rb](https://github.com/imgix/imgix-rb) to offer a few Rails-specific interfaces.
 
 [![Gem Version](https://img.shields.io/gem/v/imgix-rails.svg)](https://rubygems.org/gems/imgix-rails)
-[![Build Status](https://travis-ci.org/imgix/imgix-rails.svg?branch=master)](https://travis-ci.org/imgix/imgix-rails)
+[![Build Status](https://travis-ci.org/imgix/imgix-rails.svg?branch=main)](https://travis-ci.org/imgix/imgix-rails)
 ![Downloads](https://img.shields.io/gem/dt/imgix-rails)
-[![License](https://img.shields.io/github/license/imgix/imgix-rails)](https://github.com/imgix/imgix-rails/blob/master/LICENSE)
+[![License](https://img.shields.io/github/license/imgix/imgix-rails)](https://github.com/imgix/imgix-rails/blob/main/LICENSE)
 
 ---
 <!-- /ix-docs-ignore -->
@@ -17,13 +17,17 @@
     - [Multi-source configuration](#multi-source-configuration)
   - [`ix_image_tag`](#iximagetag)
     - [Fixed image rendering](#fixed-image-rendering)
+    - [Lazy Loading](#lazy-loading)
   - [`ix_picture_tag`](#ixpicturetag)
   - [`ix_image_url`](#iximageurl)
+    - [Usage in Model](#usage-in-model)
     - [Usage in Sprockets](#usage-in-sprockets)
 - [Using With Image Uploading Libraries](#using-with-image-uploading-libraries)
   - [Paperclip and CarrierWave](#paperclip-and-carrierwave)
   - [Refile](#refile)
   - [Active Storage](#active-storage)
+    - [S3](#s3)
+    - [GCS](#gcs)
 - [Upgrade Guides](#upgrade-guides)
   - [3.x to 4.0](#3x-to-40)
 - [Development](#development)
@@ -106,6 +110,8 @@ The `ix_image_tag` helper method makes it easy to pass parameters to imgix to ha
   * [`min_width`](https://github.com/imgix/imgix-rb#minimum-and-maximum-width-ranges): The minimum width that `srcset` pairs will be generated with. Will be ignored if `widths` are provided.
   * [`max_width`](https://github.com/imgix/imgix-rb#minimum-and-maximum-width-ranges): The maximum width that `srcset` pairs will be generated with. Will be ignored if `widths` are provided.
   * [`disable_variable_quality`](https://github.com/imgix/imgix-rb#variable-qualities): Pass `true` to disable variable quality parameters when generating a `srcset` ([fixed-images only](https://github.com/imgix/imgix-rails#fixed-image-rendering)). In addition, imgix-rails will respect an overriding `q` (quality) parameter if one is provided through `url_params`.
+  * `attribute_options`: Allow you to change where imgix-rails renders
+    attributes. This can be helpful if you want to add lazy-loading.
 
 ```erb
 <%= ix_image_tag('/unsplash/hotairballoon.jpg', url_params: { w: 300, h: 500, fit: 'crop', crop: 'right'}, tag_options: { alt: 'A hot air balloon on a sunny day' }) %>
@@ -174,6 +180,29 @@ https://assets.imgix.net/image.jpg?ixlib=rails-3.0.2&amp;w=1000&amp;dpr=5&amp;q=
 ```
 
 Fixed image rendering will automatically append a variable `q` parameter mapped to each `dpr` parameter when generating a `srcset`. This technique is commonly used to compensate for the increased filesize of high-DPR images. Since high-DPR images are displayed at a higher pixel density on devices, image quality can be lowered to reduce overall filesize without sacrificing perceived visual quality. For more information and examples of this technique in action, see [this blog post](https://blog.imgix.com/2016/03/30/dpr-quality?_ga=utm_medium=referral&utm_source=sdk&utm_campaign=rails-readme). This behavior will respect any overriding `q` value passed in via `url_params` and can be disabled altogether with `srcset_options: { disable_variable_quality: true }`.
+
+#### Lazy loading
+
+If you'd like to lazy load images, we recommend using [lazysizes](https://github.com/aFarkas/lazysizes). In order to use imgix-rails with lazysizes, you need to use `attribute_options` as well as set `tag_options[:src]`:
+
+```erb
+<%= ix_image_tag('image.jpg', attribute_options: {src: "data-src",
+srcset: "data-srcset", sizes: "data-sizes"}, url_params: {w: 1000},
+tag_options: {src: "lqip.jpg"}) %>
+```
+
+Will render the following HTML:
+
+```html
+<img data-srcset="https://assets.imgix.net/image.jpg?ixlib=rails-3.0.2&amp;w=1000&amp;dpr=1&amp;q=75 1x,
+https://assets.imgix.net/image.jpg?ixlib=rails-3.0.2&amp;w=1000&amp;dpr=2&amp;q=50 2x,
+https://assets.imgix.net/image.jpg?ixlib=rails-3.0.2&amp;w=1000&amp;dpr=3&amp;q=35 3x,
+https://assets.imgix.net/image.jpg?ixlib=rails-3.0.2&amp;w=1000&amp;dpr=4&amp;q=23 4x,
+https://assets.imgix.net/image.jpg?ixlib=rails-3.0.2&amp;w=1000&amp;dpr=5&amp;q=20 5x"
+data-sizes="100vw"
+data-src="https://assets.imgix.net/image.jpg?ixlib=rails-3.0.2&amp;w=1000"
+src="lqip.jpg">
+```
 
 ### `ix_picture_tag`
 
@@ -250,7 +279,7 @@ To generate a `picture` element on a different source:
 
 The `ix_image_url` helper makes it easy to generate a URL to an image in your Rails app.
 
-`ix_image_url` takes four arguments:
+`ix_image_url` takes three arguments:
 
 * `source`: an optional String indicating the source to be used. If unspecified `:source` or `:default_source` will be used. If specified, the value must be defined in the config.
 * `path`: The path or URL of the image to display.
@@ -268,6 +297,8 @@ https://assets.imgix.net/users/1/avatar.png?w=400&h=300
 https://assets2.imgix.net/users/1/avatar.png?w=400&h=300
 ```
 
+#### Usage in Model
+
 Since `ix_image_url` lives inside `UrlHelper`, it can also be used in places other than your views quite easily. This is useful for things such as including imgix URLs in JSON output from a serializer class.
 
 ```rb
@@ -276,6 +307,8 @@ include Imgix::Rails::UrlHelper
 puts ix_image_url('/users/1/avatar.png', { w: 400, h: 300 })
 # => https://assets.imgix.net/users/1/avatar.png?w=400&h=300
 ```
+
+Alternatively, you can also use the imgix [Ruby client](https://github.com/imgix/imgix-rb) in the same way.
 
 #### Usage in Sprockets
 
@@ -333,6 +366,7 @@ end
 
 To set up imgix with ActiveStorage, first ensure that the remote source your ActiveStorage service is pointing to is the same as your imgix source — such as an s3 bucket.
 
+### S3 
 **config/storage.yml**
 
 ```yml
@@ -343,12 +377,27 @@ region: us-east-1
 bucket: your_own_bucket
 ```
 
-Modify your active_storage.service setting depending on what environment you are using. For example, to use Amazon s3 in production, make the following change:
+### GCS 
+```yml
+google:
+  service: GCS
+  project: Project Name
+  credentials: <%= Rails.root.join("path/to/key.json") %>
+  bucket: Bucket Name
+```
+
+Modify your `active_storage.service` setting depending on what environment you are using. For example, to use Amazon s3 in production, make the following change:
 
 **config/environments/production.rb**
 
 ```rb
 config.active_storage.service = :amazon
+```
+
+To use Google GCS in production, configure the active storage service like so:
+
+```rb
+config.active_storage.service = :google
 ```
 
 As you would normally with imgix-rails, configure your application to point to your imgix source:
